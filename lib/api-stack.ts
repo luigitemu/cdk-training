@@ -2,8 +2,8 @@ import * as cdk from "aws-cdk-lib";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecs from "aws-cdk-lib/aws-ecs";
-import * as ecsPatterns from "aws-cdk-lib/aws-ecs-patterns";
-import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
+// import * as ecsPatterns from "aws-cdk-lib/aws-ecs-patterns";
+// import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
@@ -16,13 +16,11 @@ export const VPC_NAME = {
   DATA: "Data",
   PRIVATE: "Private",
 };
-export const ECR_REPO_NAME = "trainingrepo";
+export const ECR_REPO_NAME = "aws-training-nestjs-cdk";
 
 export class ApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
-
-    // The code that defines your stack goes here
 
     // Create a VPC with 2 public subnets
     const vpc = new ec2.Vpc(this, "MyVpc", {
@@ -42,7 +40,6 @@ export class ApiStack extends cdk.Stack {
           subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
         },
       ],
-      
     });
     const engine = rds.DatabaseInstanceEngine.postgres({
       version: rds.PostgresEngineVersion.VER_14_3,
@@ -72,33 +69,34 @@ export class ApiStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    // Create a security group for the Fargate tasks
-    const fargateSecurityGroup = new ec2.SecurityGroup(
-      this,
-      "FargateSecurityGroup",
-      {
-        vpc,
-        allowAllOutbound: true,
-      }
-    );
-    // allow an http request from anywhere in port 80
-    fargateSecurityGroup.addIngressRule(
-      ec2.Peer.anyIpv4(),
-      ec2.Port.tcp(80),
-      "Allow incoming HTTP traffic"
-    );
+    // // Create a security group for the Fargate tasks
+    // const fargateSecurityGroup = new ec2.SecurityGroup(
+    //   this,
+    //   "FargateSecurityGroup",
+    //   {
+    //     vpc,
+    //     allowAllOutbound: true,
+    //   }
+    // );
+    // // allow an http request from anywhere in port 80
+    // fargateSecurityGroup.addIngressRule(
+    //   ec2.Peer.anyIpv4(),
+    //   ec2.Port.tcp(80),
+    //   "Allow incoming HTTP traffic"
+    // );
 
     // Create an Amazon ECS cluster
     const cluster = new ecs.Cluster(this, "TrainingCluster", {
       vpc,
       clusterName: "aws-training-cluster",
+      containerInsights: true,
     });
 
     const ecrRepo = new ecr.Repository(this, "TrainingEcrRepo", {
       repositoryName: ECR_REPO_NAME,
+      
     });
-
-    
+    // const ecrRepo = ecr.Repository.fromRepositoryName(this, "TrainingEcrRepo", ECR_REPO_NAME);
 
     // Task Definition
     const taskDefinition = new ecs.FargateTaskDefinition(this, "training-td", {
@@ -106,15 +104,20 @@ export class ApiStack extends cdk.Stack {
       cpu: 256,
     });
 
-    const container = taskDefinition.addContainer("training-container", {
+    taskDefinition.addContainer("training-container", {
       image: ecs.ContainerImage.fromEcrRepository(ecrRepo),
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: "training",
+      }),
       memoryLimitMiB: 512,
 
-      portMappings:[{
-        containerPort: 80,
-        hostPort: 80,
-        protocol: ecs.Protocol.TCP,
-      }],
+      portMappings: [
+        {
+          containerPort: 80,
+          hostPort: 80,
+          protocol: ecs.Protocol.TCP,
+        },
+      ],
       environment: {
         VAR_PORT: "80",
         TYPEORM_TYPE: "postgres",
@@ -127,23 +130,22 @@ export class ApiStack extends cdk.Stack {
           .toString(),
         TYPEORM_DB_NAME: DB_NAME,
         JWT_SECRET: "B4b&l4vid43sunCikl0",
-        AWS_ACCESS_KEY_ID: "AKIA33HQJP5BUZZN4ILL",
-        AWS_SECRET_ACCESS_KEY: "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",
+        AWS_ACCESS_KEY_ID: process.env.API_AWS_KEY!,
+        AWS_SECRET_ACCESS_KEY: process.env.API_AWS_SECRET_KEY!,
         AWS_REGION: "us-east-1",
         AWS_PUBLIC_BUCKET_NAME: "training-nestjs-aws-public",
       },
     });
-
 
     // Service
     new ecs.FargateService(this, "training-service", {
       cluster,
       taskDefinition,
       desiredCount: 1,
-      securityGroups: [fargateSecurityGroup],
+      // securityGroups: [fargateSecurityGroup],
       serviceName: "training-svc",
+      assignPublicIp: true,
+      
     });
-
-   
   }
 }
